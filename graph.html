@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecondSelf — Knowledge Graph</title>
+  <meta name="description" content="Interactive force-directed graph of your personal knowledge wiki, organised by PARA category." />
+
+  <!-- vis-network 10.1.1 via unpkg (verified 200, no integrity hash to avoid mismatch) -->
+  <script src="https://unpkg.com/vis-network@10.1.1/dist/vis-network.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/vis-network@10.1.1/styles/vis-network.min.css" />
+
+  <style>
+    /* ── Design tokens ─────────────────────────────────────────── */
+    :root {
+      --bg:          #0c0e14;
+      --surface:     #13151f;
+      --surface-2:   #1c1f2e;
+      --border:      rgba(255,255,255,0.07);
+      --text:        #e2e6f0;
+      --text-muted:  #7c849a;
+      --accent:      #7c6af7;
+
+      /* PARA category palette */
+      --col-projects:  #f97316;   /* orange  */
+      --col-areas:     #22d3ee;   /* cyan    */
+      --col-resources: #a78bfa;   /* violet  */
+      --col-archives:  #6b7280;   /* slate   */
+      --col-unknown:   #94a3b8;   /* grey    */
+
+      --font: 'Inter', system-ui, sans-serif;
+      --radius: 12px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.45);
+    }
+
+    /* ── Reset & base ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      overflow: hidden;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────── */
+    #app {
+      display: grid;
+      grid-template-rows: 64px 1fr;
+      grid-template-columns: 1fr 300px;
+      height: 100vh;
+    }
+
+    /* ── Top bar ───────────────────────────────────────────────── */
+    #topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+
+    #topbar .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    #topbar .logo .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.55; transform: scale(0.85); }
+    }
+
+    #topbar .stats {
+      margin-left: auto;
+      display: flex;
+      gap: 20px;
+    }
+    #topbar .stat {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.3;
+    }
+    #topbar .stat strong {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* ── Canvas ────────────────────────────────────────────────── */
+    #graph-container {
+      position: relative;
+      overflow: hidden;
+    }
+    #graph-canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Empty state ───────────────────────────────────────────── */
+    #empty-state {
+      display: none;
+      position: absolute;
+      inset: 0;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      text-align: center;
+      padding: 40px;
+    }
+    #empty-state .empty-icon {
+      font-size: 56px;
+      line-height: 1;
+      filter: grayscale(0.4);
+    }
+    #empty-state h2 { font-size: 22px; font-weight: 600; }
+    #empty-state p  { color: var(--text-muted); max-width: 320px; font-size: 14px; line-height: 1.6; }
+    #empty-state code {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 8px 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: 'Fira Mono', monospace;
+      color: var(--accent);
+    }
+
+    /* ── Sidebar ───────────────────────────────────────────────── */
+    #sidebar {
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-section {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-section h3 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    /* Legend */
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 0;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .legend-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 6px currentColor;
+    }
+    .legend-count {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Controls */
+    .ctrl-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 9px 12px;
+      margin-bottom: 6px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    }
+    .ctrl-btn:hover {
+      background: var(--surface);
+      border-color: rgba(255,255,255,0.15);
+      transform: translateY(-1px);
+    }
+    .ctrl-btn:active { transform: translateY(0); }
+    .ctrl-btn svg { flex-shrink: 0; }
+
+    /* Selected note panel */
+    #note-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 20px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--surface-2) transparent;
+    }
+    #note-panel h3 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    #note-detail {
+      display: none;
+    }
+    #note-placeholder {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    #note-detail .note-summary {
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    #note-detail .note-category {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+    }
+    #note-detail .note-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .tag-chip {
+      font-size: 11px;
+      padding: 3px 9px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-muted);
+    }
+    #note-detail .note-id {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: 'Fira Mono', monospace;
+      word-break: break-all;
+      opacity: 0.6;
+    }
+    #note-detail .note-links-count {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* ── Tooltip override (vis-network renders its own DOM element) */
+    .vis-tooltip {
+      background: var(--surface-2) !important;
+      border: 1px solid rgba(255,255,255,0.12) !important;
+      border-radius: 10px !important;
+      color: var(--text) !important;
+      font-family: var(--font) !important;
+      font-size: 13px !important;
+      line-height: 1.5 !important;
+      padding: 10px 14px !important;
+      max-width: 260px !important;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+      pointer-events: none !important;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Top bar -->
+  <header id="topbar">
+    <div class="logo">
+      <div class="dot"></div>
+      SecondSelf — Knowledge Graph
+    </div>
+    <div class="stats">
+      <div class="stat"><strong id="stat-nodes">—</strong>Notes</div>
+      <div class="stat"><strong id="stat-edges">—</strong>Links</div>
+    </div>
+  </header>
+
+  <!-- Graph canvas -->
+  <div id="graph-container">
+    <div id="graph-canvas"></div>
+
+    <!-- Empty-state overlay (shown when no nodes) -->
+    <div id="empty-state">
+      <div class="empty-icon">🕸️</div>
+      <h2>No notes in your wiki yet</h2>
+      <p>Capture some notes, then run the full pipeline to populate your knowledge graph.</p>
+      <code>python capture.py "Your first note" &amp;&amp; python classify.py --all &amp;&amp; python link.py &amp;&amp; python build_graph.py</code>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+
+    <div class="sidebar-section">
+      <h3>Legend</h3>
+      <div class="legend-item">
+        <span class="legend-dot" style="color:var(--col-projects);background:var(--col-projects)"></span>
+        Projects
+        <span class="legend-count" id="cnt-projects">0</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="color:var(--col-areas);background:var(--col-areas)"></span>
+        Areas
+        <span class="legend-count" id="cnt-areas">0</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="color:var(--col-resources);background:var(--col-resources)"></span>
+        Resources
+        <span class="legend-count" id="cnt-resources">0</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="color:var(--col-archives);background:var(--col-archives)"></span>
+        Archives
+        <span class="legend-count" id="cnt-archives">0</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Controls</h3>
+      <button class="ctrl-btn" id="btn-fit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+          <path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+        </svg>
+        Fit to View
+      </button>
+      <button class="ctrl-btn" id="btn-physics">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          <path d="M4.93 4.93a10 10 0 0 0 0 14.14"/>
+        </svg>
+        <span id="physics-label">Pause Physics</span>
+      </button>
+    </div>
+
+    <div id="note-panel">
+      <h3>Selected Note</h3>
+      <p id="note-placeholder">Click a node to inspect it.</p>
+      <div id="note-detail">
+        <div class="note-category" id="nd-category"></div>
+        <div class="note-summary" id="nd-summary"></div>
+        <div class="note-tags" id="nd-tags"></div>
+        <div class="note-links-count" id="nd-links"></div>
+        <div class="note-id" id="nd-id"></div>
+      </div>
+    </div>
+
+  </aside>
+</div>
+
+<script>
+// ── Utilities ────────────────────────────────────────────────────────────────
+
+/** Escape user text so it's safe to inject into HTML attributes and content. */
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Truncate a string to maxLen chars, appending ellipsis if cut. */
+function trunc(str, maxLen = 120) {
+  const s = String(str ?? '').trim();
+  return s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
+}
+
+// ── PARA category → colour mapping ──────────────────────────────────────────
+const CATEGORY_COLORS = {
+  Projects:  { bg: '#f97316', border: '#c2510a', font: '#fff' },
+  Areas:     { bg: '#22d3ee', border: '#0d9db5', font: '#0c0e14' },
+  Resources: { bg: '#a78bfa', border: '#7c5bd4', font: '#fff' },
+  Archives:  { bg: '#6b7280', border: '#4b5563', font: '#fff' },
+  _default:  { bg: '#94a3b8', border: '#64748b', font: '#fff' },
+};
+
+function categoryColor(cat) {
+  return CATEGORY_COLORS[cat] ?? CATEGORY_COLORS._default;
+}
+
+// ── Build tooltip HTML (vis-network title property) ──────────────────────────
+function buildTooltip(node) {
+  const tags = (node.rawTags ?? []).map(t => `<span style="
+    display:inline-block;padding:1px 7px;margin:2px;border-radius:999px;
+    background:rgba(255,255,255,0.08);font-size:11px;color:#b0b8d0">${esc(t)}</span>`).join('');
+  return `
+    <div style="min-width:160px">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.07em;
+                  text-transform:uppercase;opacity:.55;margin-bottom:4px">${esc(node.rawCategory)}</div>
+      <div style="font-size:13px;font-weight:500;line-height:1.45;margin-bottom:8px">${esc(trunc(node.rawLabel, 100))}</div>
+      ${tags ? `<div>${tags}</div>` : ''}
+    </div>`;
+}
+
+// ── Main ────────────────────────────────────────────────────────────────────
+(async function main() {
+  // 1. Load graph.json (same directory as this file)
+  let graphData;
+  try {
+    const resp = await fetch('./graph.json');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    graphData = await resp.json();
+  } catch (err) {
+    console.error('Failed to load graph.json:', err);
+    graphData = { nodes: [], edges: [] };
+  }
+
+  const rawNodes = graphData.nodes ?? [];
+  const rawEdges = graphData.edges ?? [];
+
+  // 2. Update header stats
+  document.getElementById('stat-nodes').textContent = rawNodes.length;
+  document.getElementById('stat-edges').textContent = rawEdges.length;
+
+  // 3. Empty-state handling
+  if (rawNodes.length === 0) {
+    document.getElementById('empty-state').style.display = 'flex';
+    return;
+  }
+
+  // 4. Count per category for legend
+  const counts = { Projects: 0, Areas: 0, Resources: 0, Archives: 0 };
+  rawNodes.forEach(n => {
+    const k = n.category;
+    if (k in counts) counts[k]++;
+  });
+  Object.entries(counts).forEach(([cat, c]) => {
+    const el = document.getElementById(`cnt-${cat.toLowerCase()}`);
+    if (el) el.textContent = c;
+  });
+
+  // 5. Build vis-network datasets
+  const visNodes = rawNodes.map(n => {
+    const col = categoryColor(n.category);
+    return {
+      id: n.id,
+      label: trunc(n.label, 30),
+      rawLabel: n.label,
+      rawCategory: n.category,
+      rawTags: n.tags ?? [],
+      shape: 'dot',
+      size: 18,
+      color: {
+        background: col.bg,
+        border: col.border,
+        highlight: { background: col.bg, border: '#fff' },
+        hover:     { background: col.bg, border: '#fff' },
+      },
+      font: {
+        color: '#e2e6f0',
+        size: 12,
+        face: 'Inter, system-ui, sans-serif',
+        strokeWidth: 3,
+        strokeColor: '#0c0e14',
+      },
+      title: buildTooltip({ rawLabel: n.label, rawCategory: n.category, rawTags: n.tags ?? [] }),
+    };
+  });
+
+  const visEdges = rawEdges.map(e => ({
+    from: e.source,
+    to: e.target,
+    color: { color: 'rgba(255,255,255,0.12)', highlight: 'rgba(255,255,255,0.5)', hover: 'rgba(255,255,255,0.35)' },
+    width: 1.5,
+    hoverWidth: 2.5,
+    smooth: { type: 'continuous', roundness: 0.2 },
+    selectionWidth: 2.5,
+  }));
+
+  const nodeDataset = new vis.DataSet(visNodes);
+  const edgeDataset = new vis.DataSet(visEdges);
+
+  // 6. Network options
+  const options = {
+    nodes: {
+      borderWidth: 2,
+      borderWidthSelected: 3,
+      shadow: { enabled: true, size: 12, x: 0, y: 4, color: 'rgba(0,0,0,0.45)' },
+    },
+    edges: {
+      shadow: false,
+      arrows: { to: false },
+    },
+    physics: {
+      enabled: true,
+      solver: 'forceAtlas2Based',
+      forceAtlas2Based: {
+        gravitationalConstant: -60,
+        centralGravity: 0.008,
+        springLength: 160,
+        springConstant: 0.04,
+        damping: 0.45,
+      },
+      stabilization: { iterations: 250, fit: true },
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 100,
+      zoomView: true,
+      dragView: true,
+      dragNodes: true,
+      navigationButtons: false,
+      keyboard: false,
+    },
+    layout: { improvedLayout: false },
+  };
+
+  // 7. Render
+  const container = document.getElementById('graph-canvas');
+  const network = new vis.Network(container, { nodes: nodeDataset, edges: edgeDataset }, options);
+
+  // 8. Controls
+  document.getElementById('btn-fit').addEventListener('click', () => network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } }));
+
+  let physicsOn = true;
+  document.getElementById('btn-physics').addEventListener('click', () => {
+    physicsOn = !physicsOn;
+    network.setOptions({ physics: { enabled: physicsOn } });
+    document.getElementById('physics-label').textContent = physicsOn ? 'Pause Physics' : 'Resume Physics';
+  });
+
+  // Auto-pause physics after stabilisation for better performance
+  network.once('stabilized', () => {
+    network.setOptions({ physics: { enabled: false } });
+    physicsOn = false;
+    document.getElementById('physics-label').textContent = 'Resume Physics';
+  });
+
+  // 9. Node click → sidebar detail panel
+  const edgeIndex = {};  // nodeId → [connected nodeIds]
+  rawEdges.forEach(e => {
+    (edgeIndex[e.source] ??= []).push(e.target);
+    (edgeIndex[e.target] ??= []).push(e.source);
+  });
+
+  network.on('selectNode', ({ nodes: [nodeId] }) => {
+    const nd = nodeDataset.get(nodeId);
+    if (!nd) return;
+    const col = categoryColor(nd.rawCategory);
+
+    document.getElementById('note-placeholder').style.display = 'none';
+    const panel = document.getElementById('note-detail');
+    panel.style.display = 'block';
+
+    // Category badge
+    const catEl = document.getElementById('nd-category');
+    catEl.textContent = nd.rawCategory;
+    catEl.style.background = col.bg + '28';
+    catEl.style.color = col.bg;
+    catEl.style.border = `1px solid ${col.bg}55`;
+
+    document.getElementById('nd-summary').textContent = nd.rawLabel;
+
+    const tagsEl = document.getElementById('nd-tags');
+    tagsEl.innerHTML = (nd.rawTags ?? []).map(t => `<span class="tag-chip">${esc(t)}</span>`).join('');
+
+    const connectedCount = (edgeIndex[nodeId] ?? []).length;
+    document.getElementById('nd-links').textContent =
+      connectedCount === 0 ? 'No linked notes (orphan node)' :
+      `${connectedCount} link${connectedCount !== 1 ? 's' : ''}`;
+
+    document.getElementById('nd-id').textContent = nodeId;
+  });
+
+  network.on('deselectNode', () => {
+    document.getElementById('note-placeholder').style.display = '';
+    document.getElementById('note-detail').style.display = 'none';
+  });
+
+  // 10. Highlight connected nodes on hover
+  network.on('hoverNode', ({ node }) => {
+    const connected = new Set([node, ...(edgeIndex[node] ?? [])]);
+    nodeDataset.forEach(n => {
+      nodeDataset.update({ id: n.id, opacity: connected.has(n.id) ? 1 : 0.22 });
+    });
+  });
+  network.on('blurNode', () => {
+    nodeDataset.forEach(n => nodeDataset.update({ id: n.id, opacity: 1 }));
+  });
+
+})();
+</script>
+</body>
+</html>
