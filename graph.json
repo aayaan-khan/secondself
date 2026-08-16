@@ -1,0 +1,118 @@
+{
+  "nodes": [
+    {
+      "id": "2d247763-1443-41e5-a949-5da515eda8d3",
+      "label": "Review password manager subscription",
+      "category": "Areas",
+      "tags": [
+        "password",
+        "security",
+        "finance"
+      ]
+    },
+    {
+      "id": "6c0b7554-8dff-4358-9b52-0e84127cf797",
+      "label": "Renew driving license",
+      "category": "Areas",
+      "tags": [
+        "driving",
+        "license",
+        "renewal"
+      ]
+    },
+    {
+      "id": "2a4679a5-1c0f-440e-9395-c1c20d639c1a",
+      "label": "Follow up on API rate limiting",
+      "category": "Projects",
+      "tags": [
+        "q3",
+        "roadmap",
+        "api"
+      ]
+    },
+    {
+      "id": "ec8a7dbe-10e0-4ade-bcc5-361976b5c399",
+      "label": "Try new hiking trail",
+      "category": "Projects",
+      "tags": [
+        "hiking",
+        "weekend",
+        "outdoor"
+      ]
+    },
+    {
+      "id": "2c8da5a4-900d-4746-8fdb-9a91c41e5471",
+      "label": "Butter chicken recipe variation",
+      "category": "Resources",
+      "tags": [
+        "cooking",
+        "recipe",
+        "indian"
+      ]
+    },
+    {
+      "id": "4d4b4ec6-33cd-4bca-b3ba-7fd219ffc9e6",
+      "label": "Book: Atomic Habits by James Clear",
+      "category": "Resources",
+      "tags": [
+        "productivity",
+        "books",
+        "habits"
+      ]
+    },
+    {
+      "id": "5453a75d-fa94-4828-82fd-7e2216f62981",
+      "label": "PARA method for digital organization",
+      "category": "Resources",
+      "tags": [
+        "para",
+        "organization",
+        "productivity"
+      ]
+    },
+    {
+      "id": "628704c7-bc0a-4ef1-b8e8-8530c3a2d991",
+      "label": "Python library requirements",
+      "category": "Resources",
+      "tags": [
+        "python",
+        "libraries",
+        "dependencies"
+      ]
+    },
+    {
+      "id": "a609eebb-c68e-43e5-8e7c-d925f9f20d04",
+      "label": "Retrieval-augmented generation enhances LLMs",
+      "category": "Resources",
+      "tags": [
+        "retrieval",
+        "generation",
+        "llm"
+      ]
+    },
+    {
+      "id": "fb904e8e-8ca4-4b10-972e-fe50fee735dd",
+      "label": "Vector database for similarity search",
+      "category": "Resources",
+      "tags": [
+        "vector",
+        "database",
+        "machinelearning"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "2d247763-1443-41e5-a949-5da515eda8d3",
+      "target": "6c0b7554-8dff-4358-9b52-0e84127cf797"
+    },
+    {
+      "source": "5453a75d-fa94-4828-82fd-7e2216f62981",
+      "target": "a609eebb-c68e-43e5-8e7c-d925f9f20d04"
+    },
+    {
+      "source": "a609eebb-c68e-43e5-8e7c-d925f9f20d04",
+      "target": "fb904e8e-8ca4-4b10-972e-fe50fee735dd"
+    }
+  ]
+}
