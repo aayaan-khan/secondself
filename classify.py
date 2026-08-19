@@ -37,8 +37,8 @@ load_dotenv(encoding="utf-8-sig")
 # Configuration
 RAW_DIR = Path(os.environ.get("SECONDSELF_RAW_DIR", Path(__file__).resolve().parent / "raw"))
 WIKI_DIR = Path(os.environ.get("SECONDSELF_WIKI_DIR", Path(__file__).resolve().parent / "wiki"))
-DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-FALLBACK_MODEL = "llama-3.1-8b-instant"
+DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+FALLBACK_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 MAX_PROMPT_CONTENT_CHARS = 12000
 
 PARA_CATEGORIES = {"Projects", "Areas", "Resources", "Archives"}
@@ -229,54 +229,54 @@ def call_groq_with_retry(
     model: str = DEFAULT_MODEL,
     max_retries: int = 5
 ) -> str:
-    """Call Groq API with exponential backoff for rate limits and transient errors."""
-    delay = 2.0
+    """Call Groq API with exponential backoff and dynamic model fallback cascade."""
+    models_to_try = list(dict.fromkeys([model] + FALLBACK_MODELS))
     last_exception = None
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a precise knowledge classification assistant. Always respond with strict JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            return response.choices[0].message.content or ""
-        except Exception as e:
-            last_exception = e
-            err_str = str(e).lower()
-            is_rate_limit = "rate_limit" in err_str or "429" in err_str or "resource_exhausted" in err_str
-            is_transient = "500" in err_str or "503" in err_str or "connection" in err_str or "timeout" in err_str
-
-            if (is_rate_limit or is_transient) and attempt < max_retries:
-                jitter = random.uniform(0.1, 0.5)
-                wait_time = delay + jitter
-                print(
-                    f"⚠️  Groq API error ({e}). Retrying in {wait_time:.1f}s (attempt {attempt}/{max_retries})...",
-                    file=sys.stderr
+    for candidate_model in models_to_try:
+        delay = 2.0
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = client.chat.completions.create(
+                    model=candidate_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a precise knowledge classification assistant. Always respond with strict JSON."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
                 )
-                time.sleep(wait_time)
-                delay *= 2.0
-            else:
-                # If primary model fails or unrecoverable error, try fallback model once
-                if model == DEFAULT_MODEL and attempt == max_retries:
-                    try:
-                        print(f"⚠️  Trying fallback model '{FALLBACK_MODEL}'...", file=sys.stderr)
-                        return call_groq_with_retry(client, prompt, model=FALLBACK_MODEL, max_retries=2)
-                    except Exception:
-                        pass
-                raise last_exception
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                last_exception = e
+                err_str = str(e).lower()
+                is_model_not_found = "model_not_found" in err_str or "does not exist" in err_str
+                is_rate_limit = "rate_limit" in err_str or "429" in err_str or "resource_exhausted" in err_str
+                is_transient = "500" in err_str or "503" in err_str or "connection" in err_str or "timeout" in err_str
 
-    raise last_exception or RuntimeError("Failed to get response from Groq LLM")
+                if is_model_not_found:
+                    # Immediately try next candidate model in cascade
+                    break
+
+                if (is_rate_limit or is_transient) and attempt < max_retries:
+                    jitter = random.uniform(0.1, 0.5)
+                    wait_time = delay + jitter
+                    print(
+                        f"⚠️  Groq API error on model '{candidate_model}' ({e}). Retrying in {wait_time:.1f}s (attempt {attempt}/{max_retries})...",
+                        file=sys.stderr
+                    )
+                    time.sleep(wait_time)
+                    delay *= 2.0
+                else:
+                    break
+
+    raise last_exception or RuntimeError("Failed to get response from Groq LLM across all models")
 
 
 def format_wiki_markdown(

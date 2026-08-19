@@ -255,6 +255,69 @@ Hope this helps organize your wiki!"""
         self.assertIn("category: Archives", text)
         self.assertIn("*(No textual content extracted)*", text)
 
+    def test_mid_batch_crash_resumption(self):
+        # Create 3 raw items
+        for i in range(1, 4):
+            item_id = f"crash-test-{i}"
+            f = self.raw_dir / f"2026-08-19_{item_id}.json"
+            f.write_text(json.dumps({
+                "id": item_id,
+                "type": "note",
+                "timestamp": "2026-08-19T10:00:00Z",
+                "content": f"Note content {i}",
+                "source_path": None
+            }), encoding="utf-8")
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(message=MagicMock(content=json.dumps({
+                "category": "Resources",
+                "tags": ["test"],
+                "summary": "Summary test"
+            })))
+        ]
+        mock_client.chat.completions.create.return_value = mock_response
+
+        # Simulate crash on 3rd item
+        call_count = [0]
+        orig_classify = classify.classify_raw_file
+
+        def crashing_classify(path, client=None, force=False, wiki_dir=None):
+            call_count[0] += 1
+            if "crash-test-3" in path.name and call_count[0] == 3:
+                raise KeyboardInterrupt("Simulated mid-batch crash")
+            return orig_classify(path, client=client, force=force, wiki_dir=wiki_dir)
+
+        with unittest.mock.patch("classify.get_groq_client", return_value=mock_client), \
+             unittest.mock.patch("classify.classify_raw_file", side_effect=crashing_classify):
+            try:
+                classify.batch_classify(wiki_dir=self.wiki_dir)
+            except KeyboardInterrupt:
+                pass
+
+        # First 2 items exist, 3rd does not
+        self.assertTrue((self.wiki_dir / "Resources" / "crash-test-1.md").exists())
+        self.assertTrue((self.wiki_dir / "Resources" / "crash-test-2.md").exists())
+        self.assertFalse((self.wiki_dir / "Resources" / "crash-test-3.md").exists())
+
+        # Reset mock calls count before resumption
+        mock_client.chat.completions.create.reset_mock()
+
+        # Re-run batch classify without force
+        with unittest.mock.patch("classify.get_groq_client", return_value=mock_client):
+            results = classify.batch_classify(wiki_dir=self.wiki_dir)
+
+        # 1 and 2 skipped, 3 classified
+        statuses = {r["id"]: r["status"] for r in results if "id" in r}
+        self.assertEqual(statuses["crash-test-1"], "skipped")
+        self.assertEqual(statuses["crash-test-2"], "skipped")
+        self.assertEqual(statuses["crash-test-3"], "classified")
+
+        # Only 1 LLM call made on resumption
+        self.assertEqual(mock_client.chat.completions.create.call_count, 1)
+        self.assertTrue((self.wiki_dir / "Resources" / "crash-test-3.md").exists())
+
     def test_cli_help(self):
         python_bin = sys.executable
         cli_script = PROJECT_ROOT / "classify.py"
